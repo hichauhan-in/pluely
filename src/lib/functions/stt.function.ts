@@ -9,6 +9,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { TYPE_PROVIDER } from "@/types";
 import curl2Json from "@bany/curl-to-json";
 import { shouldUsePluelyAPI } from "./pluely.api";
+import { LOCAL_WHISPER_PROVIDER_ID } from "@/config/local-providers.constants";
+import { transcribeLocalWhisper } from "./local-whisper.function";
 
 // Pluely STT function
 async function fetchPluelySTT(audio: File | Blob): Promise<string> {
@@ -43,12 +45,20 @@ export interface STTParams {
     variables: Record<string, string>;
   };
   audio: File | Blob;
+  signal?: AbortSignal;
 }
 
 /**
  * Transcribes audio and returns either the transcription or an error/warning message as a single string.
  */
 export async function fetchSTT(params: STTParams): Promise<string> {
+  if (params.selectedProvider.provider === LOCAL_WHISPER_PROVIDER_ID) {
+    return transcribeLocalWhisper(
+      params.audio,
+      params.selectedProvider.variables,
+      params.signal
+    );
+  }
   let warnings: string[] = [];
 
   try {

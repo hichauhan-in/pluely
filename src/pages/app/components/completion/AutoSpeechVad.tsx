@@ -2,7 +2,7 @@ import { fetchSTT } from "@/lib";
 import { UseCompletionReturn } from "@/types";
 import { useMicVAD } from "@ricky0123/vad-react";
 import { LoaderCircleIcon, MicIcon, MicOffIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components";
 import { useApp } from "@/contexts";
 import { floatArrayToWav } from "@/lib/utils";
@@ -22,7 +22,13 @@ const AutoSpeechVADInternal = ({
   microphoneDeviceId,
 }: AutoSpeechVADProps) => {
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const transcriptionControllers = useRef(new Set<AbortController>());
   const { selectedSttProvider, allSttProviders } = useApp();
+
+  useEffect(() => () => {
+    transcriptionControllers.current.forEach((controller) => controller.abort());
+    transcriptionControllers.current.clear();
+  }, []);
 
   const audioConstraints: MediaTrackConstraints =
     microphoneDeviceId && microphoneDeviceId !== "default"
@@ -34,6 +40,8 @@ const AutoSpeechVADInternal = ({
     startOnLoad: true,
     additionalAudioConstraints: audioConstraints,
     onSpeechEnd: async (audio) => {
+      const controller = new AbortController();
+      transcriptionControllers.current.add(controller);
       try {
         // convert float32array to blob
         const audioBlob = floatArrayToWav(audio, 16000, "wav");
@@ -73,12 +81,14 @@ const AutoSpeechVADInternal = ({
           provider: usePluelyAPI ? undefined : providerConfig,
           selectedProvider: selectedSttProvider,
           audio: audioBlob,
+          signal: controller.signal,
         });
 
-        if (transcription) {
+        if (transcription && !controller.signal.aborted) {
           submit(transcription);
         }
       } catch (error) {
+        if (controller.signal.aborted) return;
         console.error("Failed to transcribe audio:", error);
         setState((prev: any) => ({
           ...prev,
@@ -86,6 +96,7 @@ const AutoSpeechVADInternal = ({
             error instanceof Error ? error.message : "Transcription failed",
         }));
       } finally {
+        transcriptionControllers.current.delete(controller);
         setIsTranscribing(false);
       }
     },

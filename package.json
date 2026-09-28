@@ -37,6 +37,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test": "node --test",
+    "test:native": "cargo test --locked --manifest-path src-tauri/Cargo.toml --test copilot_bridge",
     "preview": "vite preview",
     "tauri": "tauri"
   },

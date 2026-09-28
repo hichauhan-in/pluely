@@ -3,6 +3,8 @@ import { UseSettingsReturn } from "@/types";
 import curl2Json, { ResultJSON } from "@bany/curl-to-json";
 import { KeyIcon, TrashIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { COPILOT_PROVIDER_ID } from "@/config";
+import { CopilotBridge } from "./CopilotBridge";
 
 export const Providers = ({
   allAiProviders,
@@ -12,17 +14,13 @@ export const Providers = ({
 }: UseSettingsReturn) => {
   const [localSelectedProvider, setLocalSelectedProvider] =
     useState<ResultJSON | null>(null);
+  const isBridge = selectedAIProvider.provider === COPILOT_PROVIDER_ID;
 
   useEffect(() => {
-    if (selectedAIProvider?.provider) {
-      const provider = allAiProviders?.find(
-        (p) => p?.id === selectedAIProvider?.provider
-      );
-      if (provider) {
-        const json = curl2Json(provider?.curl);
-        setLocalSelectedProvider(json as ResultJSON);
-      }
-    }
+    const provider = allAiProviders?.find(
+      (p) => p?.id === selectedAIProvider?.provider
+    );
+    setLocalSelectedProvider(provider?.curl ? curl2Json(provider.curl) : null);
   }, [selectedAIProvider?.provider]);
 
   const findKeyAndValue = (key: string) => {
@@ -49,11 +47,11 @@ export const Providers = ({
         <Selection
           selected={selectedAIProvider?.provider}
           options={allAiProviders?.map((provider) => {
-            const json = curl2Json(provider?.curl);
+            const json = provider.isCustom ? curl2Json(provider.curl) : null;
             return {
               label: provider?.isCustom
                 ? json?.url || "Custom Provider"
-                : provider?.id || "Custom Provider",
+                : provider.name || provider?.id || "Custom Provider",
               value: provider?.id || "Custom Provider",
               isCustom: provider?.isCustom,
             };
@@ -68,7 +66,13 @@ export const Providers = ({
         />
       </div>
 
-      {localSelectedProvider ? (
+      {isBridge ? (
+        <CopilotBridge
+          variables={selectedAIProvider.variables}
+          onChange={(values) => onSetSelectedAIProvider({ ...selectedAIProvider, variables: values })}
+        />
+      ) : null}
+      {!isBridge && localSelectedProvider ? (
         <Header
           title={`Method: ${
             localSelectedProvider?.method || "Invalid"
@@ -77,7 +81,7 @@ export const Providers = ({
         />
       ) : null}
 
-      {findKeyAndValue("api_key") ? (
+      {!isBridge && findKeyAndValue("api_key") ? (
         <div className="space-y-2">
           <Header
             title="API Key"
@@ -173,7 +177,7 @@ export const Providers = ({
         </div>
       ) : null}
 
-      <div className="space-y-4 mt-2">
+      <div className="space-y-4 mt-2" hidden={isBridge}>
         {variables
           .filter(
             (variable) => variable.key !== findKeyAndValue("api_key")?.key

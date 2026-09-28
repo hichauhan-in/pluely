@@ -2,6 +2,8 @@
 mod activate;
 mod api;
 mod capture;
+mod copilot_bridge;
+mod copilot_bridge_core;
 mod db;
 mod shortcuts;
 mod window;
@@ -73,6 +75,10 @@ pub fn run() {
     let mut builder = builder
         .invoke_handler(tauri::generate_handler![
             get_app_version,
+            copilot_bridge::copilot_bridge_status,
+            copilot_bridge::connect_copilot_bridge,
+            copilot_bridge::install_copilot_bridge,
+            copilot_bridge::open_copilot_bridge,
             window::set_window_height,
             window::open_dashboard,
             window::toggle_dashboard,

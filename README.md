@@ -1,5 +1,8 @@
 # Pluely v1 🚀
 
+> **Source checkout:** This repository's application code is version 0.1.9.
+> For the added key-free providers, see [Copilot bridge and local Whisper setup](docs/local-providers.md).
+
 _One overlay, no tab, no trace._
 
 <a href="https://pluely.com/">

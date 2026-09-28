@@ -5,10 +5,13 @@ import { listen } from "@tauri-apps/api/event";
 import { useApp } from "@/contexts";
 import { fetchSTT, fetchAIResponse } from "@/lib/functions";
 import {
+  COPILOT_PROVIDER_ID,
   DEFAULT_QUICK_ACTIONS,
   DEFAULT_SYSTEM_PROMPT,
   STORAGE_KEYS,
+  LOCAL_WHISPER_PROVIDER_ID,
 } from "@/config";
+import { checkLocalProviderSetup } from "@/lib/functions/local-provider-setup.function";
 import {
   safeLocalStorage,
   shouldUsePluelyAPI,
@@ -107,6 +110,7 @@ export function useSystemAudio() {
     selectedAudioDevices,
   } = useApp();
   const abortControllerRef = useRef<AbortController | null>(null);
+  const transcriptionControllers = useRef(new Set<AbortController>());
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isSavingRef = useRef<boolean>(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -223,6 +227,9 @@ export function useSystemAudio() {
     const setupEventListener = async () => {
       try {
         speechUnlisten = await listen("speech-detected", async (event) => {
+          const controller = new AbortController();
+          transcriptionControllers.current.add(controller);
+          let timeout: ReturnType<typeof setTimeout> | undefined;
           try {
             if (!capturing) return;
 
@@ -252,25 +259,26 @@ export function useSystemAudio() {
 
             setIsProcessing(true);
 
-            // Add timeout wrapper for STT request (30 seconds)
             const sttPromise = fetchSTT({
               provider: providerConfig,
               selectedProvider: selectedSttProvider,
               audio: audioBlob,
-            });
-
-            const timeoutPromise = new Promise<string>((_, reject) => {
-              setTimeout(
-                () => reject(new Error("Speech transcription timed out (30s)")),
-                30000
-              );
+              signal: controller.signal,
             });
 
             try {
-              const transcription = await Promise.race([
-                sttPromise,
-                timeoutPromise,
-              ]);
+              const transcription = selectedSttProvider.provider === LOCAL_WHISPER_PROVIDER_ID
+                ? await sttPromise
+                : await Promise.race([
+                    sttPromise,
+                    new Promise<string>((_, reject) => {
+                      timeout = setTimeout(
+                        () => reject(new Error("Speech transcription timed out (30s)")),
+                        30000
+                      );
+                    }),
+                  ]);
+              if (controller.signal.aborted) return;
 
               if (transcription.trim()) {
                 setLastTranscription(transcription);
@@ -280,7 +288,10 @@ export function useSystemAudio() {
                   ? systemPrompt || DEFAULT_SYSTEM_PROMPT
                   : contextContent || DEFAULT_SYSTEM_PROMPT;
 
-                const previousMessages = conversation.messages.map((msg) => {
+                const history = selectedAIProvider.provider === COPILOT_PROVIDER_ID
+                  ? [...conversation.messages].sort((a, b) => a.timestamp - b.timestamp)
+                  : conversation.messages;
+                const previousMessages = history.map((msg) => {
                   return { role: msg.role, content: msg.content };
                 });
 
@@ -293,6 +304,7 @@ export function useSystemAudio() {
                 setError("Received empty transcription");
               }
             } catch (sttError: any) {
+              if (controller.signal.aborted) return;
               console.error("STT Error:", sttError);
               setError(sttError.message || "Failed to transcribe audio");
               setIsPopoverOpen(true);
@@ -300,6 +312,8 @@ export function useSystemAudio() {
           } catch (err) {
             setError("Failed to process speech");
           } finally {
+            clearTimeout(timeout);
+            transcriptionControllers.current.delete(controller);
             setIsProcessing(false);
           }
         });
@@ -317,6 +331,7 @@ export function useSystemAudio() {
     capturing,
     selectedSttProvider,
     allSttProviders,
+    selectedAIProvider.provider,
     conversation.messages.length,
   ]);
 
@@ -420,6 +435,9 @@ export function useSystemAudio() {
       }
     }
 
+    if (selectedAIProvider.provider === COPILOT_PROVIDER_ID) {
+      updatedMessages.sort((a, b) => a.timestamp - b.timestamp);
+    }
     const previousMessages = updatedMessages.map((msg) => {
       return { role: msg.role, content: msg.content };
     });
@@ -478,7 +496,8 @@ export function useSystemAudio() {
         abortControllerRef.current.abort();
       }
 
-      abortControllerRef.current = new AbortController();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
       try {
         setIsAIProcessing(true);
@@ -509,14 +528,19 @@ export function useSystemAudio() {
             history: previousMessages,
             userMessage: transcription,
             imagesBase64: [],
+            signal: controller.signal,
           })) {
+            if (controller.signal.aborted) return;
             fullResponse += chunk;
             setLastAIResponse((prev) => prev + chunk);
           }
         } catch (aiError: any) {
+          if (controller.signal.aborted) return;
           setError(aiError.message || "Failed to get AI response");
+          return;
         }
 
+        if (controller.signal.aborted) return;
         if (fullResponse) {
           const timestamp = Date.now();
           setConversation((prev) => ({
@@ -554,6 +578,7 @@ export function useSystemAudio() {
     try {
       setError("");
 
+      await checkLocalProviderSetup(selectedAIProvider, selectedSttProvider);
       const hasAccess = await invoke<boolean>("check_system_audio_access");
       if (!hasAccess) {
         setSetupRequired(true);
@@ -603,10 +628,12 @@ export function useSystemAudio() {
       setError(errorMessage);
       setIsPopoverOpen(true);
     }
-  }, [vadConfig, selectedAudioDevices.output.id]);
+  }, [vadConfig, selectedAudioDevices.output.id, selectedAIProvider, selectedSttProvider]);
 
   const stopCapture = useCallback(async () => {
     try {
+      transcriptionControllers.current.forEach((controller) => controller.abort());
+      transcriptionControllers.current.clear();
       // Abort any ongoing AI requests
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -710,6 +737,8 @@ export function useSystemAudio() {
 
   useEffect(() => {
     return () => {
+      transcriptionControllers.current.forEach((controller) => controller.abort());
+      transcriptionControllers.current.clear();
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }

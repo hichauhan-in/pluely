@@ -1,4 +1,13 @@
+import { LOCAL_WHISPER_PROVIDER_ID } from "./local-providers.constants";
+
 export const SPEECH_TO_TEXT_PROVIDERS = [
+  {
+    id: LOCAL_WHISPER_PROVIDER_ID,
+    name: "Local Whisper (no API key)",
+    curl: "",
+    responseContentPath: "text",
+    streaming: false,
+  },
   {
     id: "openai-whisper",
     name: "OpenAI Whisper",

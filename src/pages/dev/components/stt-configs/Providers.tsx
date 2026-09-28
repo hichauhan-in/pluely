@@ -3,6 +3,8 @@ import { UseSettingsReturn } from "@/types";
 import curl2Json, { ResultJSON } from "@bany/curl-to-json";
 import { KeyIcon, TrashIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { LOCAL_WHISPER_PROVIDER_ID } from "@/config";
+import { LocalWhisper } from "./LocalWhisper";
 
 export const Providers = ({
   allSttProviders,
@@ -12,17 +14,13 @@ export const Providers = ({
 }: UseSettingsReturn) => {
   const [localSelectedProvider, setLocalSelectedProvider] =
     useState<ResultJSON | null>(null);
+  const isLocalWhisper = selectedSttProvider.provider === LOCAL_WHISPER_PROVIDER_ID;
 
   useEffect(() => {
-    if (selectedSttProvider?.provider) {
-      const provider = allSttProviders?.find(
-        (p) => p?.id === selectedSttProvider?.provider
-      );
-      if (provider) {
-        const json = curl2Json(provider?.curl);
-        setLocalSelectedProvider(json as ResultJSON);
-      }
-    }
+    const provider = allSttProviders?.find(
+      (p) => p?.id === selectedSttProvider?.provider
+    );
+    setLocalSelectedProvider(provider?.curl ? curl2Json(provider.curl) : null);
   }, [selectedSttProvider?.provider]);
 
   const findKeyAndValue = (key: string) => {
@@ -49,11 +47,11 @@ export const Providers = ({
         <Selection
           selected={selectedSttProvider?.provider}
           options={allSttProviders?.map((provider) => {
-            const json = curl2Json(provider?.curl);
+            const json = provider.isCustom ? curl2Json(provider.curl) : null;
             return {
               label: provider?.isCustom
                 ? json?.url || "Custom Provider"
-                : provider?.id || "Custom Provider",
+                : provider.name || provider?.id || "Custom Provider",
               value: provider?.id || "Custom Provider",
               isCustom: provider?.isCustom,
             };
@@ -67,7 +65,13 @@ export const Providers = ({
           }}
         />
       </div>
-      {localSelectedProvider ? (
+      {isLocalWhisper ? (
+        <LocalWhisper
+          variables={selectedSttProvider.variables}
+          onChange={(values) => onSetSelectedSttProvider({ ...selectedSttProvider, variables: values })}
+        />
+      ) : null}
+      {!isLocalWhisper && localSelectedProvider ? (
         <Header
           title={`Method: ${
             localSelectedProvider?.method || "Invalid"
@@ -75,7 +79,7 @@ export const Providers = ({
           description={`If you want to use different url or method, you can always create a custom provider.`}
         />
       ) : null}
-      {findKeyAndValue("api_key") ? (
+      {!isLocalWhisper && findKeyAndValue("api_key") ? (
         <div className="space-y-2">
           <Header
             title="API Key"
@@ -171,7 +175,7 @@ export const Providers = ({
         </div>
       ) : null}
 
-      <div className="space-y-4 mt-2">
+      <div className="space-y-4 mt-2" hidden={isLocalWhisper}>
         {sttVariables
           ?.filter(
             (variable) => variable?.key !== findKeyAndValue("api_key")?.key

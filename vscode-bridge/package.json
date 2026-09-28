@@ -1,0 +1,43 @@
+{
+  "name": "pluely-copilot-bridge",
+  "displayName": "Pluely Copilot Bridge",
+  "description": "Connect Pluely to your GitHub Copilot models through VS Code's supported Language Model API.",
+  "publisher": "pluely",
+  "version": "0.1.0",
+  "license": "GPL-3.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "extension.js",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onUri"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "pluelyCopilot.authorize",
+        "title": "Pluely: Authorize Copilot Access"
+      },
+      {
+        "command": "pluelyCopilot.status",
+        "title": "Pluely: Show Copilot Bridge Status"
+      },
+      {
+        "command": "pluelyCopilot.restart",
+        "title": "Pluely: Restart Copilot Bridge"
+      }
+    ]
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

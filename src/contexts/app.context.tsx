@@ -1,5 +1,6 @@
 import {
   AI_PROVIDERS,
+  COPILOT_PROVIDER_ID,
   DEFAULT_SYSTEM_PROMPT,
   SPEECH_TO_TEXT_PROVIDERS,
   STORAGE_KEYS,
@@ -18,6 +19,10 @@ import {
   updateCursorType,
 } from "@/lib/storage";
 import { IContextType, ScreenshotConfig, TYPE_PROVIDER } from "@/types";
+import {
+  copilotSupportsImages,
+  getCopilotBridgeStatus,
+} from "@/lib/functions/copilot-bridge.function";
 import curl2Json from "@bany/curl-to-json";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -452,6 +457,22 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   // Check if the current AI provider/model supports images
   useEffect(() => {
+    if (selectedAIProvider.provider === COPILOT_PROVIDER_ID) {
+      let active = true;
+      getCopilotBridgeStatus()
+        .then((status) => {
+          if (active) setSupportsImages(copilotSupportsImages(status, selectedAIProvider.variables.model));
+        })
+        .catch((error: unknown) => {
+          if (active) {
+            console.warn("Copilot bridge is not ready:", error);
+            setSupportsImages(false);
+          }
+        });
+      return () => {
+        active = false;
+      };
+    }
     const checkImageSupport = async () => {
       if (pluelyApiEnabled) {
         // For Pluely API, check the selected model's modality
@@ -486,7 +507,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
 
     checkImageSupport();
-  }, [pluelyApiEnabled, selectedAIProvider.provider]);
+  }, [pluelyApiEnabled, selectedAIProvider.provider, selectedAIProvider.variables.model]);
 
   // Sync selected AI to localStorage
   useEffect(() => {
@@ -533,7 +554,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
 
     // Update supportsImages immediately when provider changes
-    if (!pluelyApiEnabled) {
+    if (provider === COPILOT_PROVIDER_ID) {
+      if (
+        selectedAIProvider.provider !== provider ||
+        selectedAIProvider.variables.model !== variables.model
+      ) {
+        setSupportsImages(false);
+      }
+    } else if (!pluelyApiEnabled) {
       const selectedProvider = allAiProviders.find((p) => p.id === provider);
       if (selectedProvider) {
         const hasImageSupport =
@@ -617,6 +645,11 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const setPluelyApiEnabled = async (enabled: boolean) => {
     setPluelyApiEnabledState(enabled);
     safeLocalStorage.setItem(STORAGE_KEYS.PLUELY_API_ENABLED, String(enabled));
+
+    if (selectedAIProvider.provider === COPILOT_PROVIDER_ID) {
+      loadData();
+      return;
+    }
 
     if (enabled) {
       try {

@@ -1,8 +1,9 @@
 import { InfoIcon, MicIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger, Button } from "@/components";
 import { AutoSpeechVAD } from "./AutoSpeechVad";
-import { UseCompletionReturn } from "@/types";
+import { CompletionState, UseCompletionReturn } from "@/types";
 import { useApp } from "@/contexts";
+import { checkLocalProviderSetup } from "@/lib/functions/local-provider-setup.function";
 
 export const Audio = ({
   micOpen,
@@ -12,7 +13,7 @@ export const Audio = ({
   submit,
   setState,
 }: UseCompletionReturn) => {
-  const { selectedSttProvider, pluelyApiEnabled, selectedAudioDevices } =
+  const { selectedSttProvider, selectedAIProvider, pluelyApiEnabled, selectedAudioDevices } =
     useApp();
 
   const speechProviderStatus = selectedSttProvider.provider;
@@ -31,8 +32,18 @@ export const Audio = ({
         ) : (
           <Button
             size="icon"
-            onClick={() => {
-              setEnableVAD(!enableVAD);
+            onClick={async () => {
+              try {
+                if (!enableVAD) {
+                  await checkLocalProviderSetup(selectedAIProvider, selectedSttProvider);
+                }
+                setEnableVAD(!enableVAD);
+              } catch (error) {
+                setState((previous: CompletionState) => ({
+                  ...previous,
+                  error: error instanceof Error ? error.message : String(error),
+                }));
+              }
             }}
             className="cursor-pointer"
             title="Toggle voice input"

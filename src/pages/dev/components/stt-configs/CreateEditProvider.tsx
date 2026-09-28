@@ -63,7 +63,7 @@ export const CreateEditProvider = ({
             <div className="w-[120px]">
               <Selection
                 options={allSttProviders
-                  ?.filter((provider) => !provider?.isCustom)
+                  ?.filter((provider) => !provider?.isCustom && provider.curl)
                   .map((provider) => {
                     return {
                       label: provider?.id || "STT Provider",

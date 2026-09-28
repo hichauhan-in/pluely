@@ -4,6 +4,7 @@ import { AudioVisualizer } from "@/pages/app/components/speech/audio-visualizer"
 import { shouldUsePluelyAPI, fetchSTT } from "@/lib";
 import { useApp } from "@/contexts";
 import { StopCircle, Send } from "lucide-react";
+import { checkLocalProviderSetup } from "@/lib/functions/local-provider-setup.function";
 
 interface AudioRecorderProps {
   onTranscriptionComplete: (text: string) => void;
@@ -16,11 +17,12 @@ export const AudioRecorder = ({
   onTranscriptionComplete,
   onCancel,
 }: AudioRecorderProps) => {
-  const { selectedSttProvider, allSttProviders, selectedAudioDevices } =
+  const { selectedSttProvider, selectedAIProvider, allSttProviders, selectedAudioDevices } =
     useApp();
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [duration, setDuration] = useState(0);
+  const [error, setError] = useState("");
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -28,6 +30,8 @@ export const AudioRecorder = ({
   const durationIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const maxDurationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const transcriptionController = useRef<AbortController | null>(null);
+  const recordingGeneration = useRef(0);
 
   // Cleanup function - stops all tracks and clears refs
   const cleanup = useCallback(() => {
@@ -76,12 +80,17 @@ export const AudioRecorder = ({
 
     // Cleanup on unmount
     return () => {
+      recordingGeneration.current++;
+      transcriptionController.current?.abort();
       cleanup();
     };
   }, []);
 
   const startRecording = async () => {
+    const generation = ++recordingGeneration.current;
     try {
+      await checkLocalProviderSetup(selectedAIProvider, selectedSttProvider);
+      if (generation !== recordingGeneration.current) return;
       const deviceId = selectedAudioDevices?.input?.id;
 
       const audioConstraints: MediaTrackConstraints =
@@ -92,6 +101,10 @@ export const AudioRecorder = ({
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: audioConstraints,
       });
+      if (generation !== recordingGeneration.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
 
       // Store in both ref and state
       streamRef.current = stream;
@@ -124,13 +137,16 @@ export const AudioRecorder = ({
         }
       }, MAX_DURATION);
     } catch (error) {
+      if (generation !== recordingGeneration.current) return;
       console.error("Failed to start recording:", error);
       cleanup();
-      onCancel();
+      setError(error instanceof Error ? error.message : String(error));
     }
   };
 
   const handleStop = () => {
+    recordingGeneration.current++;
+    transcriptionController.current?.abort();
     cleanup();
     onCancel();
   };
@@ -139,14 +155,19 @@ export const AudioRecorder = ({
     if (!mediaRecorderRef.current || isTranscribing) return;
 
     setIsTranscribing(true);
-
-    const mimeType = mediaRecorderRef.current.mimeType;
-    const chunks = [...audioChunksRef.current];
-
-    // Cleanup immediately after getting chunks
-    cleanup();
+    const controller = new AbortController();
+    transcriptionController.current = controller;
+    const recorder = mediaRecorderRef.current;
+    const mimeType = recorder.mimeType;
 
     try {
+      const chunks = await new Promise<Blob[]>((resolve, reject) => {
+        recorder.addEventListener("stop", () => resolve([...audioChunksRef.current]), { once: true });
+        recorder.addEventListener("error", () => reject(new Error("Audio recording failed.")), { once: true });
+        recorder.stop();
+      });
+      cleanup();
+      if (controller.signal.aborted) return;
       const audioBlob = new Blob(chunks, { type: mimeType });
 
       const usePluelyAPI = await shouldUsePluelyAPI();
@@ -158,12 +179,16 @@ export const AudioRecorder = ({
         provider: usePluelyAPI ? undefined : provider,
         selectedProvider: selectedSttProvider,
         audio: audioBlob,
+        signal: controller.signal,
       });
 
-      onTranscriptionComplete(text);
+      if (!controller.signal.aborted) onTranscriptionComplete(text);
     } catch (error) {
+      if (controller.signal.aborted) return;
       console.error("Transcription failed:", error);
-      onCancel();
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsTranscribing(false);
     }
   };
 
@@ -176,6 +201,7 @@ export const AudioRecorder = ({
 
   return (
     <div className="border bg-background rounded-lg overflow-hidden">
+      {error ? <p className="p-3 text-sm text-destructive" role="alert">{error}</p> : null}
       <div className="h-12 relative bg-muted/20">
         {audioStream ? (
           <div className="h-full w-full pt-3">
@@ -183,7 +209,7 @@ export const AudioRecorder = ({
           </div>
         ) : (
           <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-            Initializing...
+            {error ? "Recording stopped" : isTranscribing ? "Transcribing..." : "Initializing..."}
           </div>
         )}
       </div>
@@ -200,7 +226,6 @@ export const AudioRecorder = ({
             size="icon"
             variant="outline"
             onClick={handleStop}
-            disabled={isTranscribing}
             className="h-8 w-8"
             title="Stop recording"
           >
@@ -209,7 +234,7 @@ export const AudioRecorder = ({
           <Button
             size="icon"
             onClick={handleSend}
-            disabled={isTranscribing}
+            disabled={isTranscribing || !!error}
             className="h-8 w-8"
             title={isTranscribing ? "Sending..." : "Send to AI"}
           >

@@ -1,4 +1,12 @@
+import { COPILOT_PROVIDER_ID } from "./local-providers.constants";
+
 export const AI_PROVIDERS = [
+  {
+    id: COPILOT_PROVIDER_ID,
+    name: "GitHub Copilot (VS Code Bridge)",
+    curl: "",
+    streaming: true,
+  },
   {
     id: "openai",
     curl: `curl https://api.openai.com/v1/chat/completions \\

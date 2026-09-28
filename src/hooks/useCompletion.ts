@@ -17,6 +17,7 @@ import {
 } from "@/lib";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { checkLocalProviderSetup } from "@/lib/functions/local-provider-setup.function";
 
 // Types for completion
 interface AttachedFile {
@@ -55,6 +56,7 @@ interface CompletionState {
 export const useCompletion = () => {
   const {
     selectedAIProvider,
+    selectedSttProvider,
     allAiProviders,
     systemPrompt,
     screenshotConfiguration,
@@ -974,10 +976,20 @@ export const useCompletion = () => {
     };
   }, []);
 
-  const toggleRecording = useCallback(() => {
-    setEnableVAD(!enableVAD);
-    setMicOpen(!micOpen);
-  }, [enableVAD, micOpen]);
+  const toggleRecording = useCallback(async () => {
+    try {
+      if (!enableVAD) {
+        await checkLocalProviderSetup(selectedAIProvider, selectedSttProvider);
+      }
+      setEnableVAD(!enableVAD);
+      setMicOpen(!micOpen);
+    } catch (error) {
+      setState((previous) => ({
+        ...previous,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }, [enableVAD, micOpen, selectedAIProvider, selectedSttProvider]);
 
   // Cleanup abort controller on unmount
   useEffect(() => {

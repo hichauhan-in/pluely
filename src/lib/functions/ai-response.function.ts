@@ -14,6 +14,8 @@ import { shouldUsePluelyAPI } from "./pluely.api";
 import { CHUNK_POLL_INTERVAL_MS } from "../chat-constants";
 import { getResponseSettings, RESPONSE_LENGTHS, LANGUAGES } from "@/lib";
 import { MARKDOWN_FORMATTING_INSTRUCTIONS } from "@/config/constants";
+import { COPILOT_PROVIDER_ID } from "@/config/local-providers.constants";
+import { fetchCopilotResponse } from "./copilot-bridge.function";
 
 function buildEnhancedSystemPrompt(baseSystemPrompt?: string): string {
   const responseSettings = getResponseSettings();
@@ -190,6 +192,18 @@ export async function* fetchAIResponse(params: {
     }
 
     const enhancedSystemPrompt = buildEnhancedSystemPrompt(systemPrompt);
+
+    if (selectedProvider.provider === COPILOT_PROVIDER_ID) {
+      yield* fetchCopilotResponse({
+        model: selectedProvider.variables.model,
+        systemPrompt: enhancedSystemPrompt,
+        history,
+        userMessage,
+        imagesBase64,
+        signal,
+      });
+      return;
+    }
 
     // Check if we should use Pluely API instead
     const usePluelyAPI = await shouldUsePluelyAPI();
